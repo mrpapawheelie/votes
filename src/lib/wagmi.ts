@@ -6,6 +6,9 @@ import { coinbaseWallet, walletConnect } from 'wagmi/connectors'
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
 if (!projectId) throw new Error('Missing NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID')
 
+const baseRpcUrl = process.env.NEXT_PUBLIC_BASE_RPC_URL
+if (!baseRpcUrl) throw new Error('Missing NEXT_PUBLIC_BASE_RPC_URL')
+
 export const config = createConfig({
   chains: [base],
   connectors: [
@@ -34,6 +37,6 @@ export const config = createConfig({
     })
   ],
   transports: {
-    [base.id]: http(process.env.NEXT_PUBLIC_BASE_RPC_URL || 'https://api.developer.coinbase.com/rpc/v1/base/otTSFZZLGKBf5LKfGh7ufrvCzHtM6PH2')
+    [base.id]: http(baseRpcUrl)
   }
 }) 
