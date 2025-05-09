@@ -13,18 +13,13 @@ import { parseEther, formatEther } from 'viem'
 import { toast } from 'sonner'
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
+import { useStakingInfo } from '@/hooks/useStakingInfo'
 
 const formSchema = z.object({
   amount: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
     message: 'Please enter a valid amount'
   })
 })
-
-interface LockupSlot {
-  amount: bigint
-  end: bigint
-  votes: bigint
-}
 
 // Helper function to format numbers to 4 decimal places with commas
 const formatNumber = (value: bigint | undefined) => {
@@ -58,9 +53,15 @@ export default function Home() {
   const { disconnect } = useDisconnect()
   const [mounted, setMounted] = useState(false)
   const [delegateAddress, setDelegateAddress] = useState<`0x${string}` | null>(null)
-  const [totalVotes, setTotalVotes] = useState<bigint>(0n)
-  const [totalStaked, setTotalStaked] = useState<bigint>(0n)
-  const [latestExpiration, setLatestExpiration] = useState<bigint>(0n)
+  
+  const { 
+    lockups,
+    totalVotes,
+    totalStaked,
+    latestExpiration,
+    isLoading: isStakingLoading,
+    activeIndices
+  } = useStakingInfo(address)
 
   useEffect(() => {
     setMounted(true)
@@ -106,100 +107,11 @@ export default function Home() {
     }
   })
 
-  // Read lockup at index 0
-  const { data: lockup0, refetch: refetchLockup0 } = useReadContract({
-    address: VOTING_CONTRACT_ADDRESS,
-    abi: VOTING_CONTRACT_ABI,
-    functionName: 'getLockup',
-    args: [address ?? '0x0000000000000000000000000000000000000000', 0n],
-    query: {
-      enabled: !!address,
-      refetchInterval: 2000 // Poll every 2 seconds
-    }
-  })
-
-  // Read lockup at index 1
-  const { data: lockup1 } = useReadContract({
-    address: VOTING_CONTRACT_ADDRESS,
-    abi: VOTING_CONTRACT_ABI,
-    functionName: 'getLockup',
-    args: [address ?? '0x0000000000000000000000000000000000000000', 1n],
-    query: {
-      enabled: !!address,
-      refetchInterval: 2000
-    }
-  })
-
-  // Read lockup at index 2
-  const { data: lockup2 } = useReadContract({
-    address: VOTING_CONTRACT_ADDRESS,
-    abi: VOTING_CONTRACT_ABI,
-    functionName: 'getLockup',
-    args: [address ?? '0x0000000000000000000000000000000000000000', 2n],
-    query: {
-      enabled: !!address,
-      refetchInterval: 2000
-    }
-  })
-
-  // Read lockup at index 3
-  const { data: lockup3 } = useReadContract({
-    address: VOTING_CONTRACT_ADDRESS,
-    abi: VOTING_CONTRACT_ABI,
-    functionName: 'getLockup',
-    args: [address ?? '0x0000000000000000000000000000000000000000', 3n],
-    query: {
-      enabled: !!address,
-      refetchInterval: 2000
-    }
-  })
-
-  // Read lockup at index 4
-  const { data: lockup4 } = useReadContract({
-    address: VOTING_CONTRACT_ADDRESS,
-    abi: VOTING_CONTRACT_ABI,
-    functionName: 'getLockup',
-    args: [address ?? '0x0000000000000000000000000000000000000000', 4n],
-    query: {
-      enabled: !!address,
-      refetchInterval: 2000
-    }
-  })
-
   useEffect(() => {
-    console.log('Lockup 0:', lockup0)
-    console.log('Lockup 1:', lockup1)
-    console.log('Lockup 2:', lockup2)
-    console.log('Lockup 3:', lockup3)
-    console.log('Lockup 4:', lockup4)
-    console.log('Delegate:', delegate)
-    
-    let totalVotesAmount = 0n
-    let totalStakedAmount = 0n
-    let latestEnd = 0n
-
-    const lockups = [lockup0, lockup1, lockup2, lockup3, lockup4]
-    lockups.forEach((lockup) => {
-      if (lockup) {
-        const slot = lockup as LockupSlot
-        if (slot.amount > 0n) {
-          totalVotesAmount += slot.votes
-          totalStakedAmount += slot.amount
-          if (slot.end > latestEnd) {
-            latestEnd = slot.end
-          }
-        }
-      }
-    })
-
-    setTotalVotes(totalVotesAmount)
-    setTotalStaked(totalStakedAmount)
-    setLatestExpiration(latestEnd)
-
     if (delegate) {
       setDelegateAddress(delegate as `0x${string}`)
     }
-  }, [lockup0, lockup1, lockup2, lockup3, lockup4, delegate])
+  }, [delegate])
 
   const { writeContract: approve } = useWriteContract({
     mutation: {
@@ -217,7 +129,6 @@ export default function Home() {
       onSuccess: () => {
         toast.success('Votes increased successfully')
         // Force immediate refetch of all data
-        refetchLockup0()
         refetchBalance()
         form.reset()
       },
@@ -231,7 +142,6 @@ export default function Home() {
     mutation: {
       onSuccess: () => {
         toast.success('Lockups merged successfully')
-        refetchLockup0()
       },
       onError: () => {
         toast.error('Failed to merge lockups')
@@ -282,18 +192,6 @@ export default function Home() {
 
   const handleMergeAndExtend = () => {
     if (!address) return
-
-    // Get all active lockup indices
-    const activeIndices: bigint[] = []
-    const lockups = [lockup0, lockup1, lockup2, lockup3, lockup4]
-    lockups.forEach((lockup, index) => {
-      if (lockup) {
-        const slot = lockup as LockupSlot
-        if (slot.amount > 0n && index > 0) { // Skip index 0 as it's our target
-          activeIndices.push(BigInt(index))
-        }
-      }
-    })
 
     if (activeIndices.length === 0) {
       toast.error('No additional lockups to merge')
@@ -404,16 +302,28 @@ export default function Home() {
                     <div className="text-muted-foreground">Current Expiration:</div>
                     <div className="text-right font-mono">{formatDate(latestExpiration)}</div>
                   </div>
+                  {lockups.length > 1 && (
+                    <div className="text-sm text-muted-foreground">
+                      Found {lockups.length} lockup{lockups.length > 1 ? 's' : ''}
+                    </div>
+                  )}
                   <div className="text-sm text-muted-foreground pt-2">
                     Adding more MAV will extend all votes to 4 years from now
                   </div>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={handleMergeAndExtend}
-                  >
-                    Merge & Extend All to 4 Years
-                  </Button>
+                  {lockups.length > 1 && (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={handleMergeAndExtend}
+                    >
+                      Merge & Extend All to 4 Years
+                    </Button>
+                  )}
+                  {isStakingLoading && (
+                    <div className="text-sm text-muted-foreground text-center">
+                      Loading lockups...
+                    </div>
+                  )}
                 </div>
               )}
               {!totalStaked && (
