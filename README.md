@@ -34,7 +34,7 @@ npm run dev
 ## Environment Variables
 
 - `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`: Your WalletConnect Project ID
-- `NEXT_PUBLIC_BASE_RPC_URL`: Base RPC URL (optional, defaults to public RPC)
+- `NEXT_PUBLIC_BASE_RPC_URL`: Your Base RPC URL (get one at [portal.coinbase.com](https://portal.coinbase.com))
 
 ## Features
 
