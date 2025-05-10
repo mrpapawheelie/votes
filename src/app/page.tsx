@@ -296,7 +296,7 @@ export default function Home() {
                     type="submit" 
                     className="w-full"
                   >
-                    Increase Votes
+                    {(!allowance || allowance < parseEther(form.getValues().amount || '0')) ? 'Approve' : 'Increase Votes'}
                   </Button>
                 </form>
               </Form>
