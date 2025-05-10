@@ -3,6 +3,8 @@
 import * as React from "react"
 import { ThemeProvider as NextThemesProvider } from "next-themes"
 
+type Attribute = 'class' | 'data-theme' | 'data-mode'
+
 export function ThemeProvider({ 
   children, 
   ...props 
@@ -10,7 +12,7 @@ export function ThemeProvider({
   children: React.ReactNode 
   defaultTheme?: string
   storageKey?: string
-  attribute?: string
+  attribute?: Attribute | Attribute[]
   value?: { 
     light: string
     dark: string
