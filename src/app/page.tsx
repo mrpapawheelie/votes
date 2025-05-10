@@ -8,12 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { MAV_TOKEN_ADDRESS, VOTING_CONTRACT_ADDRESS, MAV_TOKEN_ABI, VOTING_CONTRACT_ABI, LOCKUP_ID, DURATION } from '@/lib/contracts'
-import { useAccount, useWriteContract, useReadContract, useConnect, useDisconnect } from 'wagmi'
+import { useAccount, useWriteContract, useReadContract, useConnect, useDisconnect, useSwitchChain } from 'wagmi'
+import { base } from 'wagmi/chains'
 import { parseEther, formatEther } from 'viem'
 import { toast } from 'sonner'
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
-import { useStakingInfo } from '@/hooks/useStakingInfo'
 
 const formSchema = z.object({
   amount: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
@@ -30,38 +30,14 @@ const formatNumber = (value: bigint | undefined) => {
   })
 }
 
-// Helper function to format whole numbers with commas
-const formatWholeNumber = (value: bigint | undefined) => {
-  if (!value) return '0'
-  return Number(formatEther(value)).toLocaleString('en-US', {
-    maximumFractionDigits: 0
-  })
-}
-
-// Helper function to format date
-const formatDate = (timestamp: bigint) => {
-  return new Date(Number(timestamp) * 1000).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
-}
-
 export default function Home() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected, chain } = useAccount()
   const { connect, connectors } = useConnect()
   const { disconnect } = useDisconnect()
+  const { switchChain } = useSwitchChain()
   const [mounted, setMounted] = useState(false)
   const [delegateAddress, setDelegateAddress] = useState<`0x${string}` | null>(null)
-  
-  const { 
-    lockups,
-    totalVotes,
-    totalStaked,
-    latestExpiration,
-    isLoading: isStakingLoading,
-    activeIndices
-  } = useStakingInfo(address)
+  const [isApproving, setIsApproving] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -117,9 +93,11 @@ export default function Home() {
     mutation: {
       onSuccess: () => {
         toast.success('Approval successful')
+        setIsApproving(false)
       },
       onError: () => {
         toast.error('Approval failed')
+        setIsApproving(false)
       }
     }
   })
@@ -127,8 +105,19 @@ export default function Home() {
   const { writeContract: extendVotes } = useWriteContract({
     mutation: {
       onSuccess: () => {
-        toast.success('Votes increased successfully')
-        // Force immediate refetch of all data
+        toast.success(
+          <div>
+            Votes increased successfully! 🎉 View your voting power on{' '}
+            <a 
+              href="https://www.goose.run/vote?chain=8453" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-primary hover:underline font-medium"
+            >
+              Goose Run
+            </a>
+          </div>
+        )
         refetchBalance()
         form.reset()
       },
@@ -138,40 +127,32 @@ export default function Home() {
     }
   })
 
-  const { writeContract: merge } = useWriteContract({
-    mutation: {
-      onSuccess: () => {
-        toast.success('Lockups merged successfully')
-      },
-      onError: () => {
-        toast.error('Failed to merge lockups')
-      }
-    }
-  })
-
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     if (!address) return
+
+    // Check if we're on Base
+    if (chain?.id !== base.id) {
+      try {
+        await switchChain({ chainId: base.id })
+      } catch {
+        toast.error('Please switch to Base network')
+        return
+      }
+    }
 
     const amount = parseEther(values.amount)
 
     // Check if we need approval
     if (!allowance || allowance < amount) {
+      if (isApproving) return // Prevent multiple approvals
+      setIsApproving(true)
+      
       // Request approval with max amount to avoid future approvals
       approve({
         address: MAV_TOKEN_ADDRESS,
         abi: MAV_TOKEN_ABI,
         functionName: 'approve',
         args: [VOTING_CONTRACT_ADDRESS, 2n ** 256n - 1n] // Max uint256
-      }, {
-        onSuccess: () => {
-          // After approval, immediately extend votes
-          extendVotes({
-            address: VOTING_CONTRACT_ADDRESS,
-            abi: VOTING_CONTRACT_ABI,
-            functionName: 'extendForSender',
-            args: [LOCKUP_ID, DURATION, amount]
-          })
-        }
       })
     } else {
       // If already approved, just extend votes
@@ -188,33 +169,6 @@ export default function Home() {
     if (balance) {
       form.setValue('amount', formatEther(balance))
     }
-  }
-
-  const handleMergeAndExtend = () => {
-    if (!address) return
-
-    if (activeIndices.length === 0) {
-      toast.error('No additional lockups to merge')
-      return
-    }
-
-    // First merge all lockups into index 0
-    merge({
-      address: VOTING_CONTRACT_ADDRESS,
-      abi: VOTING_CONTRACT_ABI,
-      functionName: 'merge',
-      args: [activeIndices]
-    }, {
-      onSuccess: () => {
-        // After merge, extend with 0 amount to 4 years
-        extendVotes({
-          address: VOTING_CONTRACT_ADDRESS,
-          abi: VOTING_CONTRACT_ABI,
-          functionName: 'extendForSender',
-          args: [LOCKUP_ID, DURATION, 0n]
-        })
-      }
-    })
   }
 
   if (!mounted) {
@@ -238,8 +192,8 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-background relative">
-      <Card className="w-[400px] bg-card border-border">
+    <main className="flex min-h-screen flex-col items-center justify-center p-4 sm:p-24 bg-background relative">
+      <Card className="w-full max-w-[400px] bg-card border-border">
         <CardHeader>
           <CardTitle className="text-foreground">Increase Votes</CardTitle>
           <CardDescription className="text-muted-foreground">
@@ -291,55 +245,17 @@ export default function Home() {
                   Disconnect
                 </Button>
               </div>
-              {totalStaked > 0n && (
-                <div className="space-y-3 pt-2 border-t border-border">
-                  <div className="text-sm font-medium text-foreground">Current Staking</div>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-muted-foreground">Total Staked:</div>
-                    <div className="text-right font-mono">{formatWholeNumber(totalStaked)} MAV</div>
-                    <div className="text-muted-foreground">Voting Power:</div>
-                    <div className="text-right font-mono">{formatWholeNumber(totalVotes)} votes</div>
-                    <div className="text-muted-foreground">Current Expiration:</div>
-                    <div className="text-right font-mono">{formatDate(latestExpiration)}</div>
-                  </div>
-                  {lockups.length > 1 && (
-                    <div className="text-sm text-muted-foreground">
-                      Found {lockups.length} lockup{lockups.length > 1 ? 's' : ''}
-                    </div>
-                  )}
-                  <div className="text-sm text-muted-foreground pt-2">
-                    Adding more MAV will extend all votes to 4 years from now
-                  </div>
-                  {lockups.length > 1 && (
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={handleMergeAndExtend}
-                    >
-                      Merge & Extend All to 4 Years
-                    </Button>
-                  )}
-                  {isStakingLoading && (
-                    <div className="text-sm text-muted-foreground text-center">
-                      Loading lockups...
-                    </div>
-                  )}
-                </div>
-              )}
-              {!totalStaked && (
-                <div className="text-sm text-muted-foreground text-center p-4 border rounded-lg bg-muted/50">
-                  You need to first establish staking on{' '}
-                  <a 
-                    href="https://goose.run/votes" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    goose.run/votes
-                  </a>
-                  {' '}using ETH on Base.
-                </div>
-              )}
+              <div className="text-sm text-muted-foreground text-center p-4 border rounded-lg bg-muted/50">
+                Check your voting power on{' '}
+                <a 
+                  href="https://www.goose.run/vote?chain=8453" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline font-medium"
+                >
+                  Goose Run
+                </a>
+              </div>
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4 border-t border-border">
                   <div className="space-y-4">
@@ -403,7 +319,7 @@ export default function Home() {
           )}
         </CardContent>
       </Card>
-      <div className="fixed bottom-8 left-8">
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2">
         <a 
           href="https://x.com/credexium" 
           target="_blank" 
@@ -415,7 +331,6 @@ export default function Home() {
             alt="CredExium"
             width={32}
             height={32}
-            className="dark:invert"
           />
         </a>
       </div>
