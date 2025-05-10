@@ -2,9 +2,23 @@
 
 import * as React from "react"
 import { ThemeProvider as NextThemesProvider } from "next-themes"
-import { type ThemeProviderProps } from "next-themes/dist/types"
 
-export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
+export function ThemeProvider({ 
+  children, 
+  ...props 
+}: { 
+  children: React.ReactNode 
+  defaultTheme?: string
+  storageKey?: string
+  attribute?: string
+  value?: { 
+    light: string
+    dark: string
+    system: string 
+  }
+  enableSystem?: boolean
+  disableTransitionOnChange?: boolean
+}) {
   return (
     <NextThemesProvider
       attribute="class"
